@@ -1,8 +1,8 @@
 import tweepy
 
 # These come from your Developer Portal (main account creates the app)
-API_KEY = "6qxJ1W5xXLnkO6LECva5b2kaw"
-API_SECRET = "7TEoTsinprJ2eIJkiU54EHopoewNvrZz9PLlNsyOpvVQMxrCBe"
+API_KEY = ""
+API_SECRET = ""
 
 def authorize_bot_account():
     """
