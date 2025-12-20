@@ -25,6 +25,16 @@ TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 TWITCH_CHANNELS_RAW = os.getenv("TWITCH_CHANNELS", "")
 TWITCH_CHANNELS = [ch.strip() for ch in TWITCH_CHANNELS_RAW.split(",") if ch.strip()]
+TWITCH_FANNAMES_RAW = os.getenv("TWITCH_FANNAMES", "")
+TWITCH_FANNAMES = [fn.strip() for fn in TWITCH_FANNAMES_RAW.split(",") if fn.strip()]
+
+# Build channel -> fanname mapping
+CHANNEL_FANNAMES = {}
+for i, channel in enumerate(TWITCH_CHANNELS):
+    if i < len(TWITCH_FANNAMES):
+        CHANNEL_FANNAMES[channel.lower()] = TWITCH_FANNAMES[i]
+    else:
+        CHANNEL_FANNAMES[channel.lower()] = "fans"  # default fanname
 
 # Twitter credentials
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
@@ -100,11 +110,15 @@ class TwitchNotifier:
             title = "Live now!"
             game = "Unknown"
         
+        # Get fanname for this channel
+        fanname = CHANNEL_FANNAMES.get(channel_name.lower(), "fans")
+        
         # Format and post the notification
         message = NOTIFICATION_TEMPLATE.format(
             channel=channel_name,
             title=title,
             game=game,
+            fanname=fanname,
         )
         
         print(f"📝 Posting notification:\n{message}\n")
