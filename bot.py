@@ -15,7 +15,7 @@ import tweepy
 from twitchAPI.twitch import Twitch
 from twitchAPI.eventsub.websocket import EventSubWebsocket
 from twitchAPI.object.eventsub import StreamOnlineEvent
-from twitchAPI.type import AuthScope
+from twitchAPI.helper import first
 
 # Load environment variables
 load_dotenv()
@@ -96,8 +96,7 @@ class TwitchNotifier:
         
         # Get stream info for the notification
         try:
-            streams = await self.twitch.get_streams(user_login=[channel_name])
-            stream_data = streams.data[0] if streams.data else None
+            stream_data = await first(self.twitch.get_streams(user_login=[channel_name]))
             
             if stream_data:
                 title = stream_data.title
@@ -133,17 +132,20 @@ class TwitchNotifier:
         self.twitch = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
         
         # Get broadcaster IDs for all channels
-        users = await self.twitch.get_users(logins=self.channels)
-        if not users.data:
+        users_data = []
+        async for user in self.twitch.get_users(logins=self.channels):
+            users_data.append(user)
+        
+        if not users_data:
             print("❌ Could not find any Twitch channels")
             sys.exit(1)
         
-        for user in users.data:
+        for user in users_data:
             self.broadcaster_ids[user.login] = user.id
             print(f"✅ Found channel: {user.login} (ID: {user.id})")
         
         # Check for missing channels
-        found_logins = {u.login.lower() for u in users.data}
+        found_logins = {u.login.lower() for u in users_data}
         missing = [ch for ch in self.channels if ch.lower() not in found_logins]
         if missing:
             print(f"⚠️ Could not find channels: {', '.join(missing)}")
