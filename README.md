@@ -4,7 +4,7 @@ A simple Python bot that monitors a Twitch channel and automatically posts to Tw
 
 ## Features
 
-- 🎮 Monitors Twitch channel for stream start events via EventSub WebSocket
+- 🎮 Monitors multiple Twitch channels for stream start events via EventSub WebSocket
 - 🐦 Posts customizable notifications to Twitter/X
 - 📝 Includes stream title and game in notifications
 - 🔧 Easy configuration via environment variables
@@ -35,7 +35,7 @@ pip install -r requirements.txt
 
 1. Go to [Twitter Developer Portal](https://developer.twitter.com/)
 2. Create a new project and app
-3. Generate API Key, API Secret, Access Token, and Access Token Secret
+3. Go to "Keys and Tokens" and generate a **Bearer Token**
 4. Make sure your app has **Read and Write** permissions
 
 ### 3. Configure Environment
@@ -51,12 +51,9 @@ Edit `.env` with your credentials:
 ```
 TWITCH_CLIENT_ID=your_client_id
 TWITCH_CLIENT_SECRET=your_client_secret
-TWITCH_CHANNEL=channel_to_monitor
+TWITCH_CHANNELS=channel1,channel2,channel3
 
-TWITTER_API_KEY=your_api_key
-TWITTER_API_SECRET=your_api_secret
-TWITTER_ACCESS_TOKEN=your_access_token
-TWITTER_ACCESS_TOKEN_SECRET=your_access_token_secret
+TWITTER_BEARER_TOKEN=your_bearer_token
 ```
 
 ### 4. (Optional) Customize Notification Message
@@ -82,8 +79,8 @@ python bot.py
 The bot will:
 
 1. Connect to Twitch EventSub
-2. Listen for stream start events
-3. Post to Twitter when the monitored channel goes live
+2. Listen for stream start events from all configured channels
+3. Post to Twitter when any monitored channel goes live
 
 Press `Ctrl+C` to stop the bot.
 
