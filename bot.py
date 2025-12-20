@@ -132,10 +132,10 @@ class TwitchNotifier:
         
         # Initialize Twitch API
         self.twitch = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        
-        auth = UserAuthenticator(self.twitch, USER_SCOPE)
+        target_scope = [AuthScope.USER_READ_EMAIL]
+        auth = UserAuthenticator(self.twitch, target_scope)
         token, refresh_token = await auth.authenticate()
-        await self.twitch.set_user_authentication(token, USER_SCOPE, refresh_token)
+        await self.twitch.set_user_authentication(token, target_scope, refresh_token)
 
         # Get broadcaster IDs for all channels
         users_data = []
