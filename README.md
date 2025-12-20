@@ -1,3 +1,7 @@
+# THIS IS A PROJECT FULLY DEVELOPED BY AI
+
+# USE IT AT YOUR OWN RISK
+
 # Twitter-Twitch Notification Bot
 
 A simple Python bot that monitors a Twitch channel and automatically posts to Twitter/X when the stream goes live.
