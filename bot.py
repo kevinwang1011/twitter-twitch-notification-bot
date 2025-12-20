@@ -13,6 +13,7 @@ import sys
 from dotenv import load_dotenv
 import tweepy
 from twitchAPI.twitch import Twitch
+from twitchAPI.oauth import CodeFlow
 from twitchAPI.eventsub.websocket import EventSubWebsocket
 from twitchAPI.object.eventsub import StreamOnlineEvent
 from twitchAPI.helper import first
@@ -39,11 +40,15 @@ for i, channel in enumerate(TWITCH_CHANNELS):
         CHANNEL_FANNAMES[channel.lower()] = "fans"  # default fanname
 
 # Twitter credentials
-TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
+TWITTER_API_KEY = os.getenv("TWITTER_API_KEY")
+TWITTER_API_SECRET = os.getenv("TWITTER_API_SECRET")
+TWITTER_ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
+TWITTER_ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
+
 
 # Notification template
 DEFAULT_TEMPLATE = "{channel} is now live on Twitch! 🎮\n\n📺 {title}\n🎯 Playing: {game}\n\n👉 https://twitch.tv/{channel}"
-NOTIFICATION_TEMPLATE = os.getenv("NOTIFICATION_TEMPLATE", DEFAULT_TEMPLATE)
+NOTIFICATION_TEMPLATE = os.getenv("NOTIFICATION_TEMPLATE", DEFAULT_TEMPLATE).replace("\\n", "\n")
 
 
 def validate_env():
@@ -52,7 +57,10 @@ def validate_env():
         ("TWITCH_CLIENT_ID", TWITCH_CLIENT_ID),
         ("TWITCH_CLIENT_SECRET", TWITCH_CLIENT_SECRET),
         ("TWITCH_CHANNELS", TWITCH_CHANNELS_RAW),
-        ("TWITTER_BEARER_TOKEN", TWITTER_BEARER_TOKEN),
+        ("TWITTER_API_KEY", TWITTER_API_KEY),
+        ("TWITTER_API_SECRET", TWITTER_API_SECRET),
+        ("TWITTER_ACCESS_TOKEN", TWITTER_ACCESS_TOKEN),
+        ("TWITTER_ACCESS_TOKEN_SECRET", TWITTER_ACCESS_TOKEN_SECRET),
     ]
     
     missing = [name for name, value in required if not value]
@@ -64,23 +72,37 @@ def validate_env():
         print("\nPlease copy .env.example to .env and fill in your credentials.")
         sys.exit(1)
 
-
-def get_twitter_client() -> tweepy.Client:
-    """Create and return a Twitter API client using Bearer Token."""
-    return tweepy.Client(bearer_token=TWITTER_BEARER_TOKEN)
-
-
 def post_tweet(message: str) -> bool:
-    """Post a tweet with the given message."""
+    """Send a tweet using API v2 (works with Free tier)"""
     try:
-        client = get_twitter_client()
+        # Create v2 Client (this works with Free tier!)
+        client = tweepy.Client(
+            consumer_key=TWITTER_API_KEY,
+            consumer_secret=TWITTER_API_SECRET,
+            access_token=TWITTER_ACCESS_TOKEN,
+            access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
+        )
+        
+        # Post the tweet
         response = client.create_tweet(text=message)
-        print(f"✅ Tweet posted successfully! Tweet ID: {response.data['id']}")
+        
+        print("✓ Tweet posted successfully!")
+        print(f"  Tweet ID: {response.data['id']}")
+        print(f"  Content: {message}")
+        
         return True
+        
+    except tweepy.errors.Forbidden as e:
+        print(f"✗ Permission error: {e}")
+        print("  Make sure your app has 'Read and Write' permissions")
+    except tweepy.errors.Unauthorized as e:
+        print(f"✗ Authentication error: {e}")
+        print("  Check your API credentials")
+    except tweepy.errors.TweepyException as e:
+        print(f"✗ Twitter API error: {e}")
     except Exception as e:
-        print(f"❌ Failed to post tweet: {e}")
-        return False
-
+        print(f"✗ Unexpected error: {e}")
+    return False
 
 class TwitchNotifier:
     """Handles Twitch EventSub and stream notifications."""
@@ -133,9 +155,13 @@ class TwitchNotifier:
         # Initialize Twitch API
         self.twitch = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
         target_scope = [AuthScope.USER_READ_EMAIL]
-        auth = UserAuthenticator(self.twitch, target_scope)
-        token, refresh_token = await auth.authenticate()
-        await self.twitch.set_user_authentication(token, target_scope, refresh_token)
+        code_flow = CodeFlow(self.twitch, target_scope)
+        code, url = await code_flow.get_code()
+        print(url)  # visit this url and complete the flow
+        token, refresh = await code_flow.wait_for_auth_complete()
+        print(f"🔐 User authentication successful!")
+        print(f"   Token received: {token[:20]}...")
+        await self.twitch.set_user_authentication(token, target_scope, refresh)
 
         # Get broadcaster IDs for all channels
         users_data = []
@@ -211,6 +237,7 @@ async def main():
             
     except KeyboardInterrupt:
         await notifier.stop()
+        sys.exit(0)
     except Exception as e:
         print(f"❌ Error: {e}")
         await notifier.stop()
