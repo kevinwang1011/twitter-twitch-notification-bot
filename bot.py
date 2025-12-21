@@ -162,10 +162,6 @@ class YouTubeMonitor:
                 
                 video_id = video_match.group(1)
                 
-                # Check if stream is actually live (not upcoming/ended)
-                if '"isLiveNow":true' not in html and '"isLive":true' not in html:
-                    return None, None, None
-                
                 # Extract channel name
                 channel_name_match = re.search(r'"ownerChannelName":"([^"]+)"', html)
                 channel_name = channel_name_match.group(1) if channel_name_match else channel_id
@@ -173,6 +169,11 @@ class YouTubeMonitor:
                 # Extract title
                 title_match = re.search(r'"title":"([^"]+)"', html)
                 title = title_match.group(1) if title_match else "Live Stream"
+
+                # Check playability status and live status
+                if '"playabilityStatus":{"status":"OK"' not in html :
+                    print(f"⚠️ Non-live stream detected: {channel_name}, {title}")
+                    return None, None, None
                 
                 return video_id, channel_name, title
                 
