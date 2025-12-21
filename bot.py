@@ -7,8 +7,11 @@ when the stream goes live.
 
 import asyncio
 import os
+import re
 import signal
 import sys
+
+import aiohttp
 
 from dotenv import load_dotenv
 import tweepy
@@ -23,21 +26,30 @@ from twitchAPI.type import AuthScope
 # Load environment variables
 load_dotenv()
 
+# General streamer configuration (by index)
+FANNAMES_RAW = os.getenv("FANNAMES", "")
+FANNAMES = [fn.strip() for fn in FANNAMES_RAW.split(",") if fn.strip()]
+DISPLAY_NAMES_RAW = os.getenv("DISPLAY_NAMES", "")
+DISPLAY_NAMES = [dn.strip() for dn in DISPLAY_NAMES_RAW.split(",") if dn.strip()]
+
 # Twitch credentials
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 TWITCH_CHANNELS_RAW = os.getenv("TWITCH_CHANNELS", "")
 TWITCH_CHANNELS = [ch.strip() for ch in TWITCH_CHANNELS_RAW.split(",") if ch.strip()]
-TWITCH_FANNAMES_RAW = os.getenv("TWITCH_FANNAMES", "")
-TWITCH_FANNAMES = [fn.strip() for fn in TWITCH_FANNAMES_RAW.split(",") if fn.strip()]
 
-# Build channel -> fanname mapping
-CHANNEL_FANNAMES = {}
-for i, channel in enumerate(TWITCH_CHANNELS):
-    if i < len(TWITCH_FANNAMES):
-        CHANNEL_FANNAMES[channel.lower()] = TWITCH_FANNAMES[i]
-    else:
-        CHANNEL_FANNAMES[channel.lower()] = "fans"  # default fanname
+# Build Twitch channel -> index mapping
+TWITCH_CHANNEL_INDEX = {ch.lower(): i for i, ch in enumerate(TWITCH_CHANNELS)}
+
+# YouTube credentials
+YOUTUBE_CHANNELS_RAW = os.getenv("YOUTUBE_CHANNELS", "")
+YOUTUBE_CHANNELS = [ch.strip() for ch in YOUTUBE_CHANNELS_RAW.split(",") if ch.strip()]
+YOUTUBE_SCHEDULED_STREAMS_RAW = os.getenv("YOUTUBE_SCHEDULED_STREAMS", "")
+YOUTUBE_SCHEDULED_STREAMS = [vid.strip() for vid in YOUTUBE_SCHEDULED_STREAMS_RAW.split(",") if vid.strip()]
+YOUTUBE_CHECK_INTERVAL = int(os.getenv("YOUTUBE_CHECK_INTERVAL", "60"))
+
+# Build YouTube channel -> index mapping
+YOUTUBE_CHANNEL_INDEX = {ch: i for i, ch in enumerate(YOUTUBE_CHANNELS)}
 
 # Twitter credentials
 TWITTER_API_KEY = os.getenv("TWITTER_API_KEY")
@@ -46,9 +58,19 @@ TWITTER_ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
 TWITTER_ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
 
 
-# Notification template
-DEFAULT_TEMPLATE = "{channel} is now live on Twitch! 🎮\n\n📺 {title}\n🎯 Playing: {game}\n\n👉 https://twitch.tv/{channel}"
-NOTIFICATION_TEMPLATE = os.getenv("NOTIFICATION_TEMPLATE", DEFAULT_TEMPLATE).replace("\\n", "\n")
+def get_streamer_info(index: int) -> tuple[str, str]:
+    """Get fanname and display name for a streamer by index."""
+    fanname = FANNAMES[index] if index < len(FANNAMES) else "fans"
+    display_name = DISPLAY_NAMES[index] if index < len(DISPLAY_NAMES) else f"Streamer{index}"
+    return fanname, display_name
+
+
+# Notification templates
+DEFAULT_TWITCH_TEMPLATE = "{display_name} is now live on Twitch! 🎮\n\n📺 {title}\n🎯 Playing: {game}\n\n👉 https://twitch.tv/{channel}"
+TWITCH_NOTIFICATION_TEMPLATE = os.getenv("TWITCH_NOTIFICATION_TEMPLATE", os.getenv("NOTIFICATION_TEMPLATE", DEFAULT_TWITCH_TEMPLATE)).replace("\\n", "\n")
+
+DEFAULT_YOUTUBE_TEMPLATE = "{display_name} is now live on YouTube! 🔴\n\n📺 {title}\n\n👉 https://youtube.com/watch?v={video_id}"
+YOUTUBE_NOTIFICATION_TEMPLATE = os.getenv("YOUTUBE_NOTIFICATION_TEMPLATE", DEFAULT_YOUTUBE_TEMPLATE).replace("\\n", "\n")
 
 
 def validate_env():
@@ -104,6 +126,122 @@ def post_tweet(message: str) -> bool:
         print(f"✗ Unexpected error: {e}")
     return False
 
+
+class YouTubeMonitor:
+    """Monitors YouTube channels for live streams."""
+    
+    def __init__(self, channels: list[str], scheduled_streams: list[str]):
+        self.channels = channels
+        self.scheduled_streams = set(scheduled_streams)  # Pre-cached scheduled stream IDs
+        self.known_video_ids: set[str] = set(scheduled_streams)  # Cache of known video IDs
+        self.running = False
+    
+    async def check_channel_live(self, session: aiohttp.ClientSession, channel_id: str) -> tuple[str | None, str | None, str | None]:
+        """Check if a YouTube channel is live by fetching the /live page.
+        
+        Returns (video_id, channel_name, title) if live, else (None, None, None).
+        """
+        url = f"https://www.youtube.com/channel/{channel_id}/live"
+        
+        try:
+            async with session.get(url, allow_redirects=True) as response:
+                if response.status != 200:
+                    return None, None, None
+                
+                final_url = str(response.url)
+                html = await response.text()
+                
+                # Check if redirected to a video page
+                video_match = re.search(r'watch\?v=([a-zA-Z0-9_-]{11})', final_url)
+                if not video_match:
+                    # Try to find video ID in the page content (for embedded player)
+                    video_match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+                
+                if not video_match:
+                    return None, None, None
+                
+                video_id = video_match.group(1)
+                
+                # Check if stream is actually live (not upcoming/ended)
+                if '"isLiveNow":true' not in html and '"isLive":true' not in html:
+                    return None, None, None
+                
+                # Extract channel name
+                channel_name_match = re.search(r'"ownerChannelName":"([^"]+)"', html)
+                channel_name = channel_name_match.group(1) if channel_name_match else channel_id
+                
+                # Extract title
+                title_match = re.search(r'"title":"([^"]+)"', html)
+                title = title_match.group(1) if title_match else "Live Stream"
+                
+                return video_id, channel_name, title
+                
+        except Exception as e:
+            print(f"⚠️ Error checking YouTube channel {channel_id}: {e}")
+            return None, None, None
+    
+    async def check_all_channels(self):
+        """Check all YouTube channels for live streams."""
+        if not self.channels:
+            return
+        
+        async with aiohttp.ClientSession(headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }) as session:
+            for channel_id in self.channels:
+                video_id, channel_name, title = await self.check_channel_live(session, channel_id)
+                
+                if video_id and video_id not in self.known_video_ids:
+                    print(f"\n🔴 YouTube Live detected: {channel_name}")
+                    print(f"   Video ID: {video_id}")
+                    print(f"   Title: {title}")
+                    
+                    # Add to cache
+                    self.known_video_ids.add(video_id)
+                    
+                    # Get streamer info by index
+                    index = YOUTUBE_CHANNEL_INDEX.get(channel_id, 0)
+                    fanname, display_name = get_streamer_info(index)
+                    
+                    # Format and post notification
+                    message = YOUTUBE_NOTIFICATION_TEMPLATE.format(
+                        channel=channel_name,
+                        display_name=display_name,
+                        fanname=fanname,
+                        title=title,
+                        video_id=video_id,
+                    )
+                    
+                    print(f"📝 Posting YouTube notification:\n{message}\n")
+                    post_tweet(message)
+    
+    async def start(self):
+        """Start the YouTube monitoring loop."""
+        if not self.channels:
+            print("ℹ️ No YouTube channels configured, skipping YouTube monitoring.")
+            return
+        
+        print(f"📺 Starting YouTube monitor for {len(self.channels)} channel(s)...")
+        print(f"   Channels: {', '.join(self.channels)}")
+        if self.scheduled_streams:
+            print(f"   Pre-cached scheduled streams: {', '.join(self.scheduled_streams)}")
+        print(f"   Check interval: {YOUTUBE_CHECK_INTERVAL}s")
+        
+        self.running = True
+        
+        while self.running:
+            try:
+                await self.check_all_channels()
+            except Exception as e:
+                print(f"⚠️ YouTube check error: {e}")
+            
+            await asyncio.sleep(YOUTUBE_CHECK_INTERVAL)
+    
+    def stop(self):
+        """Stop the YouTube monitoring loop."""
+        self.running = False
+
+
 class TwitchNotifier:
     """Handles Twitch EventSub and stream notifications."""
     
@@ -133,18 +271,20 @@ class TwitchNotifier:
             title = "Live now!"
             game = "Unknown"
         
-        # Get fanname for this channel
-        fanname = CHANNEL_FANNAMES.get(channel_name.lower(), "fans")
+        # Get streamer info by index
+        index = TWITCH_CHANNEL_INDEX.get(channel_name.lower(), 0)
+        fanname, display_name = get_streamer_info(index)
         
         # Format and post the notification
-        message = NOTIFICATION_TEMPLATE.format(
+        message = TWITCH_NOTIFICATION_TEMPLATE.format(
             channel=channel_name,
+            display_name=display_name,
             title=title,
             game=game,
             fanname=fanname,
         )
         
-        print(f"📝 Posting notification:\n{message}\n")
+        print(f"📝 Posting Twitch notification:\n{message}\n")
         post_tweet(message)
     
     async def start(self):
@@ -215,11 +355,14 @@ async def main():
     validate_env()
     
     notifier = TwitchNotifier(TWITCH_CHANNELS)
+    youtube_monitor = YouTubeMonitor(YOUTUBE_CHANNELS, YOUTUBE_SCHEDULED_STREAMS)
+    youtube_task = None
     
     # Handle graceful shutdown
     loop = asyncio.get_event_loop()
     
     def signal_handler():
+        youtube_monitor.stop()
         asyncio.create_task(notifier.stop())
         loop.stop()
     
@@ -231,15 +374,21 @@ async def main():
     try:
         await notifier.start()
         
+        # Start YouTube monitor as a background task
+        if YOUTUBE_CHANNELS:
+            youtube_task = asyncio.create_task(youtube_monitor.start())
+        
         # Keep running until interrupted
         while True:
             await asyncio.sleep(1)
             
     except KeyboardInterrupt:
+        youtube_monitor.stop()
         await notifier.stop()
         sys.exit(0)
     except Exception as e:
         print(f"❌ Error: {e}")
+        youtube_monitor.stop()
         await notifier.stop()
         sys.exit(1)
 

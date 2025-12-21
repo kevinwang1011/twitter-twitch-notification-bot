@@ -1,12 +1,13 @@
 # THIS IS A PROJECT FULLY DEVELOPED BY AI, USE IT AT YOUR OWN RISK
 
-# Twitter-Twitch Notification Bot
+# Twitter-Twitch-YouTube Notification Bot
 
-A simple Python bot that monitors Twitch channels and automatically posts to Twitter/X when streams go live.
+A Python bot that monitors Twitch channels and YouTube channels, automatically posting to Twitter/X when streams go live.
 
 ## Features
 
-- 🎮 Monitors multiple Twitch channels for stream start events via EventSub WebSocket
+- 🎮 Monitors multiple Twitch channels via EventSub WebSocket
+- 📺 Monitors multiple YouTube channels via polling (60s interval)
 - 🐦 Posts customizable notifications to Twitter/X
 - 📝 Includes stream title and game in notifications
 - 🔧 Easy configuration via environment variables
@@ -44,7 +45,14 @@ pip install -r requirements.txt
 2. Create a new application
 3. Copy the Client ID and generate a Client Secret
 
-### 3. Get Twitter API Credentials
+### 3. Get YouTube Channel IDs
+
+1. Go to the YouTube channel page you want to monitor
+2. View page source (Ctrl+U)
+3. Search for `"channelId"` - it looks like `UCxxxxxxxxxxxxxxxxxxxxxxxxxx`
+4. Copy the channel ID (starts with UC)
+
+### 4. Get Twitter API Credentials
 
 1. **Main Account Setup:**
 
@@ -65,7 +73,7 @@ pip install -r requirements.txt
      - Authorize the app and copy the PIN
    - Save the generated **Access Token** and **Access Token Secret**
 
-### 4. Configure Environment
+### 5. Configure Environment
 
 Copy the example environment file:
 
@@ -80,6 +88,12 @@ Edit `.env` with your credentials:
 TWITCH_CLIENT_ID=your_client_id
 TWITCH_CLIENT_SECRET=your_client_secret
 TWITCH_CHANNELS=channel1,channel2,channel3
+TWITCH_FANNAMES=Fans1,Fans2,Fans3
+
+# YouTube
+YOUTUBE_CHANNELS=UCxxxxxxx,UCyyyyyyy
+YOUTUBE_SCHEDULED_STREAMS=video_id_1,video_id_2
+YOUTUBE_CHECK_INTERVAL=60
 
 # Twitter (API keys from main account's Developer Portal)
 TWITTER_API_KEY=your_api_key
@@ -90,20 +104,23 @@ TWITTER_ACCESS_TOKEN=your_bot_access_token
 TWITTER_ACCESS_TOKEN_SECRET=your_bot_access_token_secret
 ```
 
-### 5. (Optional) Customize Notification Message
+### 6. (Optional) Customize Notification Messages
 
-You can customize the notification template in `.env`:
+**Twitch template:**
 
 ```
-NOTIFICATION_TEMPLATE={channel} is now live! 🎮\n\n{title}\n\nWatch: https://twitch.tv/{channel}
+TWITCH_NOTIFICATION_TEMPLATE={channel} is now live! 🎮\n\n{title}\n\nWatch: https://twitch.tv/{channel}
 ```
 
-Available placeholders:
+Placeholders: `{channel}`, `{title}`, `{game}`, `{fanname}`
 
-- `{channel}` - Twitch channel name
-- `{title}` - Stream title
-- `{game}` - Game being played
-- `{fanname}` - Fan name for the channel
+**YouTube template:**
+
+```
+YOUTUBE_NOTIFICATION_TEMPLATE={channel} is live on YouTube! 🔴\n\n{title}\n\nhttps://youtube.com/watch?v={video_id}
+```
+
+Placeholders: `{channel}`, `{title}`, `{video_id}`
 
 ## Usage
 
@@ -125,10 +142,14 @@ The bot will:
 
 1. Open a Twitch authorization URL (complete the auth flow in browser)
 2. Connect to Twitch EventSub
-3. Listen for stream start events from all configured channels
+3. Start YouTube channel polling (every 60s by default)
 4. Post to Twitter when any monitored channel goes live
 
 Press `Ctrl+C` to stop the bot.
+
+## YouTube Scheduled Streams
+
+If a channel has a scheduled/upcoming stream, add its video ID to `YOUTUBE_SCHEDULED_STREAMS` to prevent duplicate notifications when it goes live. The bot caches these IDs on startup.
 
 ## Running as a Service (Optional)
 
