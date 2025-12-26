@@ -60,6 +60,8 @@ TWITTER_ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
 # Meta Threads credentials
 THREADS_ACCESS_TOKEN = os.getenv("THREADS_ACCESS_TOKEN")
 THREADS_USER_ID = os.getenv("THREADS_USER_ID")
+THREADS_TOPIC_TAGS_RAW = os.getenv("THREADS_TOPIC_TAGS", "")
+THREADS_TOPIC_TAGS = [t.strip() for t in THREADS_TOPIC_TAGS_RAW.split(",") if t.strip()]
 
 
 def get_streamer_info(index: int) -> tuple[str, str]:
@@ -135,7 +137,7 @@ def post_tweet(message: str) -> bool:
     return None
 
 
-async def post_threads_meta(message: str) -> bool:
+async def post_threads_meta(message: str, topic_tag: str = None) -> bool:
     """Post to Meta's Threads platform using the official API."""
     if not THREADS_ACCESS_TOKEN or not THREADS_USER_ID or not message:
         return False
@@ -143,20 +145,22 @@ async def post_threads_meta(message: str) -> bool:
     print(f"[THREADS] Posting to Meta Threads...")
     
     base_url = f"https://graph.threads.net/v1.0/{THREADS_USER_ID}"
-    headers = {"Authorization": f"Bearer {THREADS_ACCESS_TOKEN}"}
     
+    # 1. Create a media container
+    params = {
+        "media_type": "TEXT",
+        "text": message,
+        "access_token": THREADS_ACCESS_TOKEN
+    }
+    
+    if topic_tag:
+        params["topic_tag"] = topic_tag
+        print(f"   Topic Tag: {topic_tag}")
+
     async with aiohttp.ClientSession() as session:
         try:
-            # 1. Create a media container
             print("   Step 1: Creating media container...")
-            async with session.post(
-                f"{base_url}/threads",
-                params={
-                    "media_type": "TEXT",
-                    "text": message,
-                    "access_token": THREADS_ACCESS_TOKEN
-                }
-            ) as resp:
+            async with session.post(f"{base_url}/threads", params=params) as resp:
                 data = await resp.json()
                 if resp.status != 200:
                     print(f"   ✗ Container creation failed: {data}")
@@ -289,7 +293,9 @@ class YouTubeMonitor:
                             video_id=video_id,
                         )
                         print(f"📝 Posting YouTube to Meta Threads:\n{threads_message}\n")
-                        asyncio.create_task(post_threads_meta(threads_message))
+                        # Get topic tag if exists
+                        topic_tag = THREADS_TOPIC_TAGS[index] if index < len(THREADS_TOPIC_TAGS) else None
+                        asyncio.create_task(post_threads_meta(threads_message, topic_tag))
     
     async def start(self):
         """Start the YouTube monitoring loop."""
@@ -373,7 +379,9 @@ class TwitchNotifier:
                 fanname=fanname,
             )
             print(f"📝 Posting Twitch to Meta Threads:\n{threads_message}\n")
-            asyncio.create_task(post_threads_meta(threads_message))
+            # Get topic tag if exists
+            topic_tag = THREADS_TOPIC_TAGS[index] if index < len(THREADS_TOPIC_TAGS) else None
+            asyncio.create_task(post_threads_meta(threads_message, topic_tag))
     
     async def start(self):
         """Start the Twitch EventSub listener."""

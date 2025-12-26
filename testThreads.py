@@ -44,12 +44,19 @@ async def send_test_post():
         
     test_message = "[TEST] Test message from bot!\n\nLine 2 here\nLine 3 here\n\n✅ If you see this on Threads, it works!"
     
+    # Prompt for topic tag
+    topic_tag = input("\nEnter a topic tag (optional, press Enter to skip): ").strip()
+    if not topic_tag:
+        topic_tag = None
+
     print("\n🧵 Sending test post to Meta Threads...")
     print("-" * 50)
     print(test_message)
+    if topic_tag:
+        print(f"Topic Tag: {topic_tag}")
     print("-" * 50)
     
-    success = await post_threads_meta(test_message)
+    success = await post_threads_meta(test_message, topic_tag)
     
     if success:
         print("\n✅ Threads post successful!")
