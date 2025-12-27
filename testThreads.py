@@ -42,7 +42,7 @@ async def send_test_post():
         print("\n❌ Error: THREADS_ACCESS_TOKEN or THREADS_USER_ID not found in .env")
         return False
         
-    test_message = "[TEST] Test message from bot!\n\nLine 2 here\nLine 3 here\n\n✅ If you see this on Threads, it works!"
+    test_message = "[TEST] Test message from bot!\n\nLine 2 here\nLine 3 here\n\n👉 https://github.com/google-deepmind/antigravity\n\n✅ If you see this on Threads with a link preview, it works!"
     
     # Prompt for topic tag
     topic_tag = input("\nEnter a topic tag (optional, press Enter to skip): ").strip()

@@ -146,13 +146,31 @@ async def post_threads_meta(message: str, topic_tag: str = None) -> bool:
     
     base_url = f"https://graph.threads.net/v1.0/{THREADS_USER_ID}"
     
+    # Extract link if present for link_attachment
+    url_pattern = r'https?://[^\s)\]]+'
+    url_match = re.search(url_pattern, message)
+    link_attachment = None
+    clean_message = message
+
+    if url_match:
+        link_attachment = url_match.group(0)
+        # Remove the URL and the preceding "👉 " emoji/space if present
+        # Pattern looks for "👉 " followed by the URL, or just the URL
+        removal_pattern = r'(?:👉\s*)?' + re.escape(link_attachment)
+        clean_message = re.sub(removal_pattern, '', message).strip()
+        print(f"   Extracted Link Attachment: {link_attachment}")
+        print(f"   Cleaned Message: {clean_message[:50]}...")
+
     # 1. Create a media container
     params = {
         "media_type": "TEXT",
-        "text": message,
+        "text": clean_message,
         "access_token": THREADS_ACCESS_TOKEN
     }
     
+    if link_attachment:
+        params["link_attachment"] = link_attachment
+
     if topic_tag:
         params["topic_tag"] = topic_tag
         print(f"   Topic Tag: {topic_tag}")
